@@ -143,7 +143,7 @@ class DeviceStateManager(private val context: Context) {
             repository.setMidLevel(profile, prefs.getInt(KEY_MID_LEVEL, 0))
 
             if (repository.volumeLevelerSupported) {
-                repository.setVolumeLevelerEnabled(profile, prefs.getBoolean(KEY_VOLUME, false))
+                repository.setVolumeLevelerEnabled(profile, prefs.getBoolean(KEY_VOLUME, true))
             }
             if (repository.stereoWideningSupported) {
                 repository.setStereoWideningAmount(profile, prefs.getInt(KEY_STEREO, 32))
@@ -205,7 +205,7 @@ class DeviceStateManager(private val context: Context) {
     companion object {
         private const val TAG = "DeviceStateManager"
 
-        const val SNAPSHOT_VERSION = 1
+        const val SNAPSHOT_VERSION = 2
 
         private const val KEY_VERSION = "snapshot_version"
         private const val KEY_PROFILE = "profile"
