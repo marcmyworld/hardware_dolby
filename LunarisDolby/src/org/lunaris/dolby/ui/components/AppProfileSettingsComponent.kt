@@ -39,7 +39,7 @@ fun AppProfileSettingsCard(
         mutableStateOf(prefs.getBoolean("app_profile_monitoring_enabled", false)) 
     }
     var isDeviceStateMemoryEnabled by remember {
-        mutableStateOf(prefs.getBoolean(DolbyConstants.PREF_DEVICE_STATE_MEMORY, false))
+        mutableStateOf(prefs.getBoolean(DolbyConstants.PREF_DEVICE_STATE_MEMORY, true))
     }
     var showToasts by remember {
         mutableStateOf(prefs.getBoolean("app_profile_show_toasts", true))

@@ -49,8 +49,14 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
     private var cachedPresets: List<EqualizerPreset>? = null
     private val presetCacheLock = Any()
 
+    val isDeviceStateMemoryEnabled: Boolean
+        get() = defaultPrefs.getBoolean(DolbyConstants.PREF_DEVICE_STATE_MEMORY, true)
+
+    private val deviceStateManager by lazy { DeviceStateManager(context) }
+
     init {
         migrateVolumeLevelerDefault()
+        migrateDeviceStateMemoryDefault()
     }
 
     private fun migrateVolumeLevelerDefault() {
@@ -66,6 +72,20 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
                 DolbyConstants.dlog(TAG, "Migrated default volume leveler to enabled")
             } catch (e: Exception) {
                 DolbyConstants.dlog(TAG, "Failed to migrate volume leveler defaults: ${e.message}")
+            }
+        }
+    }
+
+    private fun migrateDeviceStateMemoryDefault() {
+        if (!defaultPrefs.getBoolean("pref_device_state_memory_migrated_v1", false)) {
+            try {
+                defaultPrefs.edit()
+                    .putBoolean(DolbyConstants.PREF_DEVICE_STATE_MEMORY, true)
+                    .putBoolean("pref_device_state_memory_migrated_v1", true)
+                    .apply()
+                DolbyConstants.dlog(TAG, "Migrated default device state memory to enabled")
+            } catch (e: Exception) {
+                DolbyConstants.dlog(TAG, "Failed to migrate device state memory default: ${e.message}")
             }
         }
     }
@@ -92,7 +112,14 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
                 val enabled = defaultPrefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
                 dolbyEffect.dsOn = enabled
                 if (enabled) {
-                    restoreSavedProfileIfNeeded()
+                    if (isDeviceStateMemoryEnabled) {
+                        val restored = restoreCurrentDeviceSnapshot()
+                        if (!restored) {
+                            restoreSavedProfileIfNeeded()
+                        }
+                    } else {
+                        restoreSavedProfileIfNeeded()
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -166,13 +193,72 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
         }
     }
 
+    fun getCurrentOutputDevice(): AudioDeviceInfo? {
+        val routedDevice = try {
+            audioManager.getDevicesForAttributes(ATTRIBUTES_MEDIA).firstOrNull()
+        } catch (e: Exception) {
+            DolbyConstants.dlog(TAG, "Failed to get active media route: ${e.message}")
+            null
+        } ?: return null
+
+        val outputs: Array<AudioDeviceInfo> = try {
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        } catch (e: Exception) {
+            emptyArray<AudioDeviceInfo>()
+        }
+        val routedAddress = routedDevice.address.orEmpty()
+
+        return outputs.firstOrNull { device ->
+            device.isSink &&
+                device.type == routedDevice.type &&
+                (routedAddress.isEmpty() || device.address == routedAddress)
+        } ?: outputs.firstOrNull { device ->
+            device.isSink && device.type == routedDevice.type
+        }
+    }
+
+    fun saveCurrentDeviceSnapshot() {
+        try {
+            val device = getCurrentOutputDevice() ?: return
+            val key = deviceStateManager.deviceKey(device)
+            deviceStateManager.saveSnapshot(key, this, force = true)
+            DolbyConstants.dlog(TAG, "Saved snapshot for current device: $key")
+        } catch (e: Exception) {
+            DolbyConstants.dlog(TAG, "Error saving current device snapshot: ${e.message}")
+        }
+    }
+
+    fun restoreCurrentDeviceSnapshot(): Boolean {
+        return try {
+            val device = getCurrentOutputDevice() ?: return false
+            val key = deviceStateManager.deviceKey(device)
+            if (!deviceStateManager.hasSnapshot(key)) {
+                DolbyConstants.dlog(TAG, "No snapshot exists for current device: $key")
+                return false
+            }
+            val restored = deviceStateManager.restoreSnapshot(key, this)
+            DolbyConstants.dlog(TAG, "Restored snapshot for current device $key: $restored")
+            restored
+        } catch (e: Exception) {
+            DolbyConstants.dlog(TAG, "Error restoring current device snapshot: ${e.message}")
+            false
+        }
+    }
+
     fun applySavedState() {
         checkEffect()
         val enabled = defaultPrefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
         dolbyEffect.dsOn = enabled
         _isDolbyEnabled.value = enabled
         if (enabled) {
-            restoreSavedProfileIfNeeded()
+            if (isDeviceStateMemoryEnabled) {
+                val restored = restoreCurrentDeviceSnapshot()
+                if (!restored) {
+                    restoreSavedProfileIfNeeded()
+                }
+            } else {
+                restoreSavedProfileIfNeeded()
+            }
         }
     }
 
@@ -196,12 +282,22 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
 
     fun setDolbyEnabled(enabled: Boolean) {
         try {
+            if (!enabled && isDeviceStateMemoryEnabled) {
+                saveCurrentDeviceSnapshot()
+            }
             checkEffect()
             dolbyEffect.dsOn = enabled
             defaultPrefs.edit().putBoolean(DolbyConstants.PREF_ENABLE, enabled).apply()
             _isDolbyEnabled.value = enabled
             if (enabled) {
-                restoreSavedProfileIfNeeded()
+                if (isDeviceStateMemoryEnabled) {
+                    val restored = restoreCurrentDeviceSnapshot()
+                    if (!restored) {
+                        restoreSavedProfileIfNeeded()
+                    }
+                } else {
+                    restoreSavedProfileIfNeeded()
+                }
             }
         } catch (e: Exception) {
             DolbyConstants.dlog(TAG, "Error setting Dolby enabled: ${e.message}")
@@ -217,7 +313,7 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
         }
     }
 
-    fun setCurrentProfile(profile: Int) {
+    fun setCurrentProfile(profile: Int, saveDeviceSnapshot: Boolean = true) {
         try {
             checkEffect()
             dolbyEffect.profile = profile
@@ -229,6 +325,9 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
             applyProfileSettings(profile)
             _currentProfile.value = profile
             DolbyConstants.dlog(TAG, "Profile set to: $profile")
+            if (saveDeviceSnapshot && isDeviceStateMemoryEnabled && getDolbyEnabled()) {
+                saveCurrentDeviceSnapshot()
+            }
         } catch (e: Exception) {
             DolbyConstants.dlog(TAG, "Error setting current profile: ${e.message}")
         }

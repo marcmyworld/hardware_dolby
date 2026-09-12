@@ -51,8 +51,8 @@ class DeviceStateManager(private val context: Context) {
         }
     }
 
-    fun saveSnapshot(deviceKey: String, repository: DolbyRepository) {
-        if (!repository.getDolbyEnabled()) {
+    fun saveSnapshot(deviceKey: String, repository: DolbyRepository, force: Boolean = false) {
+        if (!force && !repository.getDolbyEnabled()) {
             DolbyConstants.dlog(TAG, "Dolby disabled, skipping snapshot save for device=$deviceKey")
             return
         }
@@ -122,30 +122,54 @@ class DeviceStateManager(private val context: Context) {
         return try {
             val profile = prefs.getInt(KEY_PROFILE, 0)
 
-            repository.setCurrentProfile(profile)
+            repository.setCurrentProfile(profile, saveDeviceSnapshot = false)
 
-            repository.setIeqPreset(profile, prefs.getInt(KEY_IEQ, 0))
+            if (prefs.contains(KEY_IEQ)) {
+                repository.setIeqPreset(profile, prefs.getInt(KEY_IEQ, 0))
+            }
 
-            repository.setHeadphoneVirtualizerEnabled(profile, prefs.getBoolean(KEY_HP_VIRT, false))
-            repository.setSpeakerVirtualizerEnabled(profile, prefs.getBoolean(KEY_SPK_VIRT, false))
+            if (prefs.contains(KEY_HP_VIRT)) {
+                repository.setHeadphoneVirtualizerEnabled(profile, prefs.getBoolean(KEY_HP_VIRT, false))
+            }
+            if (prefs.contains(KEY_SPK_VIRT)) {
+                repository.setSpeakerVirtualizerEnabled(profile, prefs.getBoolean(KEY_SPK_VIRT, false))
+            }
 
-            repository.setDialogueEnhancerEnabled(profile, prefs.getBoolean(KEY_DIALOGUE, false))
-            repository.setDialogueEnhancerAmount(profile, prefs.getInt(KEY_DIALOGUE_AMT, 6))
+            if (prefs.contains(KEY_DIALOGUE)) {
+                repository.setDialogueEnhancerEnabled(profile, prefs.getBoolean(KEY_DIALOGUE, false))
+            }
+            if (prefs.contains(KEY_DIALOGUE_AMT)) {
+                repository.setDialogueEnhancerAmount(profile, prefs.getInt(KEY_DIALOGUE_AMT, 6))
+            }
 
-            repository.setBassEnhancerEnabled(profile, prefs.getBoolean(KEY_BASS_ENABLED, false))
-            repository.setBassCurve(profile, prefs.getInt(KEY_BASS_CURVE, 0))
-            repository.setBassLevel(profile, prefs.getInt(KEY_BASS_LEVEL, 0))
+            if (prefs.contains(KEY_BASS_ENABLED)) {
+                repository.setBassEnhancerEnabled(profile, prefs.getBoolean(KEY_BASS_ENABLED, false))
+            }
+            if (prefs.contains(KEY_BASS_CURVE)) {
+                repository.setBassCurve(profile, prefs.getInt(KEY_BASS_CURVE, 0))
+            }
+            if (prefs.contains(KEY_BASS_LEVEL)) {
+                repository.setBassLevel(profile, prefs.getInt(KEY_BASS_LEVEL, 0))
+            }
 
-            repository.setTrebleEnhancerEnabled(profile, prefs.getBoolean(KEY_TREBLE_ENABLED, false))
-            repository.setTrebleLevel(profile, prefs.getInt(KEY_TREBLE_LEVEL, 0))
+            if (prefs.contains(KEY_TREBLE_ENABLED)) {
+                repository.setTrebleEnhancerEnabled(profile, prefs.getBoolean(KEY_TREBLE_ENABLED, false))
+            }
+            if (prefs.contains(KEY_TREBLE_LEVEL)) {
+                repository.setTrebleLevel(profile, prefs.getInt(KEY_TREBLE_LEVEL, 0))
+            }
 
-            repository.setMidEnhancerEnabled(profile, prefs.getBoolean(KEY_MID_ENABLED, false))
-            repository.setMidLevel(profile, prefs.getInt(KEY_MID_LEVEL, 0))
+            if (prefs.contains(KEY_MID_ENABLED)) {
+                repository.setMidEnhancerEnabled(profile, prefs.getBoolean(KEY_MID_ENABLED, false))
+            }
+            if (prefs.contains(KEY_MID_LEVEL)) {
+                repository.setMidLevel(profile, prefs.getInt(KEY_MID_LEVEL, 0))
+            }
 
             if (repository.volumeLevelerSupported) {
                 repository.setVolumeLevelerEnabled(profile, prefs.getBoolean(KEY_VOLUME, true))
             }
-            if (repository.stereoWideningSupported) {
+            if (repository.stereoWideningSupported && prefs.contains(KEY_STEREO)) {
                 repository.setStereoWideningAmount(profile, prefs.getInt(KEY_STEREO, 32))
             }
 

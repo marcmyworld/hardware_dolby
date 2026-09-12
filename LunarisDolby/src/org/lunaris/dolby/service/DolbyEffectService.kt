@@ -28,7 +28,7 @@ class DolbyEffectService : Service() {
         getSharedPreferences("dolby_prefs", Context.MODE_PRIVATE)
     }
     private val isDeviceStateMemoryEnabled: Boolean
-        get() = dolbyPrefs.getBoolean(DolbyConstants.PREF_DEVICE_STATE_MEMORY, false)
+        get() = dolbyPrefs.getBoolean(DolbyConstants.PREF_DEVICE_STATE_MEMORY, true)
     private val handler = Handler()
     private lateinit var repository: DolbyRepository
     private lateinit var deviceStateManager: DeviceStateManager
@@ -46,7 +46,7 @@ class DolbyEffectService : Service() {
                 removedDevices.forEach { device ->
                     val key = deviceStateManager.deviceKey(device)
                     Log.d(TAG, "Snapshotting state for removed device: $key")
-                    deviceStateManager.saveSnapshot(key, repository)
+                    deviceStateManager.saveSnapshot(key, repository, force = true)
                 }
             }
             handleDeviceChange()
@@ -93,7 +93,7 @@ class DolbyEffectService : Service() {
             if (isDeviceStateMemoryEnabled) {
                 val oldKey = deviceStateManager.deviceKey(oldDevice)
                 Log.d(TAG, "Saving snapshot for previous device: $oldKey")
-                deviceStateManager.saveSnapshot(oldKey, repository)
+                deviceStateManager.saveSnapshot(oldKey, repository, force = true)
             }
         }
 
@@ -161,7 +161,7 @@ class DolbyEffectService : Service() {
         if (isDeviceStateMemoryEnabled) {
             previousActiveDevice?.let { device ->
                 val key = deviceStateManager.deviceKey(device)
-                deviceStateManager.saveSnapshot(key, repository)
+                deviceStateManager.saveSnapshot(key, repository, force = true)
             }
         }
         audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)

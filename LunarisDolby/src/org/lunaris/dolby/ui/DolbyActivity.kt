@@ -101,6 +101,7 @@ class DolbyActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         DolbyConstants.dlog(TAG, "Activity onCreate")
+        org.lunaris.dolby.utils.NotificationPermissionHelper.ensureNotificationListenerEnabled(this)
         lifecycle.addObserver(lifecycleObserver)
         
         setContent {
