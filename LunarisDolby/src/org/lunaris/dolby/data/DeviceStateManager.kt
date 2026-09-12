@@ -52,13 +52,16 @@ class DeviceStateManager(private val context: Context) {
     }
 
     fun saveSnapshot(deviceKey: String, repository: DolbyRepository) {
+        if (!repository.getDolbyEnabled()) {
+            DolbyConstants.dlog(TAG, "Dolby disabled, skipping snapshot save for device=$deviceKey")
+            return
+        }
         val profile = repository.getCurrentProfile()
         val prefs = getDevicePrefs(deviceKey)
         val editor = prefs.edit()
 
         editor.putInt(KEY_VERSION, SNAPSHOT_VERSION)
 
-        editor.putBoolean(KEY_DOLBY_ENABLED, repository.getDolbyEnabled())
         editor.putInt(KEY_PROFILE, profile)
 
         editor.putInt(KEY_IEQ, repository.getIeqPreset(profile))
@@ -96,6 +99,11 @@ class DeviceStateManager(private val context: Context) {
     }
 
     fun restoreSnapshot(deviceKey: String, repository: DolbyRepository): Boolean {
+        if (!repository.getDolbyEnabled()) {
+            DolbyConstants.dlog(TAG, "Dolby disabled, skipping snapshot restore for device=$deviceKey")
+            return false
+        }
+
         val prefs = getDevicePrefs(deviceKey)
 
         if (!prefs.contains(KEY_VERSION)) {
@@ -112,10 +120,8 @@ class DeviceStateManager(private val context: Context) {
         }
 
         return try {
-            val enabled = prefs.getBoolean(KEY_DOLBY_ENABLED, true)
             val profile = prefs.getInt(KEY_PROFILE, 0)
 
-            repository.setDolbyEnabled(enabled)
             repository.setCurrentProfile(profile)
 
             repository.setIeqPreset(profile, prefs.getInt(KEY_IEQ, 0))
@@ -202,7 +208,6 @@ class DeviceStateManager(private val context: Context) {
         const val SNAPSHOT_VERSION = 1
 
         private const val KEY_VERSION = "snapshot_version"
-        private const val KEY_DOLBY_ENABLED = "enabled"
         private const val KEY_PROFILE = "profile"
         private const val KEY_IEQ = "ieq"
         private const val KEY_HP_VIRT = "hp_virt"

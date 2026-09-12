@@ -49,7 +49,7 @@ class AppProfileMonitorService : Service() {
     override fun onCreate() {
         super.onCreate()
         appProfileManager = AppProfileManager(this)
-        dolbyRepository = DolbyRepository(this)
+        dolbyRepository = DolbyRepository.getInstance(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
 
@@ -149,6 +149,10 @@ class AppProfileMonitorService : Service() {
 
     private fun checkForegroundApp() {
         try {
+            if (!dolbyRepository.getDolbyEnabled()) {
+                return
+            }
+            
             val prefs = getSharedPreferences("dolby_prefs", Context.MODE_PRIVATE)
             val headphoneOnlyMode = prefs.getBoolean("app_profile_headphone_only", false)
             
@@ -271,7 +275,6 @@ class AppProfileMonitorService : Service() {
         super.onDestroy()
         DolbyConstants.dlog(TAG, "Service destroyed")
         stopMonitoring()
-        dolbyRepository.close()
         hasOriginalProfile = false
     }
 

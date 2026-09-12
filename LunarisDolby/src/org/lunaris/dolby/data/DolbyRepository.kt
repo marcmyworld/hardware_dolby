@@ -19,24 +19,32 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class DolbyRepository(private val context: Context) : AutoCloseable {
+class DolbyRepository private constructor(private val context: Context) : AutoCloseable {
 
     private val audioManager = context.getSystemService(AudioManager::class.java)
-    private var dolbyEffect = createDolbyEffect()
-    
     private val defaultPrefs = context.getSharedPreferences("dolby_prefs", Context.MODE_PRIVATE)
     private val presetsPrefs = context.getSharedPreferences(DolbyConstants.PREF_FILE_PRESETS, Context.MODE_PRIVATE)
+    
+    private var dolbyEffect = createDolbyEffect().also {
+        val enabled = defaultPrefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
+        it.dsOn = enabled
+    }
+    
+    private val _isDolbyEnabled = MutableStateFlow(
+        defaultPrefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
+    )
+    val isDolbyEnabled: StateFlow<Boolean> = _isDolbyEnabled.asStateFlow()
     
     private val _isOnSpeaker = MutableStateFlow(checkIsOnSpeaker())
     val isOnSpeaker: StateFlow<Boolean> = _isOnSpeaker.asStateFlow()
     
-    private val _currentProfile = MutableStateFlow(0)
+    private val _currentProfile = MutableStateFlow(
+        defaultPrefs.getString(DolbyConstants.PREF_PROFILE, "0")?.toIntOrNull() ?: 0
+    )
     val currentProfile: StateFlow<Int> = _currentProfile.asStateFlow()
 
     val stereoWideningSupported = context.resources.getBoolean(R.bool.dolby_stereo_widening_supported)
     val volumeLevelerSupported = context.resources.getBoolean(R.bool.dolby_volume_leveler_supported)
-    
-    private var isReleased = false
     
     private var cachedPresets: List<EqualizerPreset>? = null
     private val presetCacheLock = Any()
@@ -51,17 +59,20 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     private fun checkEffect() {
-        if (isReleased) {
-            DolbyConstants.dlog(TAG, "Repository released, skipping effect check")
-            return
-        }
-        
         try {
             if (!dolbyEffect.hasControl()) {
                 DolbyConstants.dlog(TAG, "Lost audio effect control, recreating")
-                dolbyEffect.release()
+                try {
+                    dolbyEffect.release()
+                } catch (e: Exception) {
+                    DolbyConstants.dlog(TAG, "Error releasing effect: ${e.message}")
+                }
                 dolbyEffect = createDolbyEffect()
-                restoreSavedProfileIfNeeded()
+                val enabled = defaultPrefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
+                dolbyEffect.dsOn = enabled
+                if (enabled) {
+                    restoreSavedProfileIfNeeded()
+                }
             }
         } catch (e: Exception) {
             DolbyConstants.dlog(TAG, "Error checking effect: ${e.message}")
@@ -121,9 +132,10 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun applySavedState() {
-    checkEffect()
+        checkEffect()
         val enabled = defaultPrefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
         dolbyEffect.dsOn = enabled
+        _isDolbyEnabled.value = enabled
         if (enabled) {
             restoreSavedProfileIfNeeded()
         }
@@ -140,27 +152,22 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun updateSpeakerState() {
-        if (!isReleased) {
-            _isOnSpeaker.value = checkIsOnSpeaker()
-        }
+        _isOnSpeaker.value = checkIsOnSpeaker()
     }
 
     fun getDolbyEnabled(): Boolean {
-        return try {
-            dolbyEffect.dsOn
-        } catch (e: Exception) {
-            DolbyConstants.dlog(TAG, "Error getting Dolby enabled state: ${e.message}")
-            false
-        }
+        return defaultPrefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
     }
 
     fun setDolbyEnabled(enabled: Boolean) {
-        if (isReleased) return
-        
         try {
             checkEffect()
             dolbyEffect.dsOn = enabled
             defaultPrefs.edit().putBoolean(DolbyConstants.PREF_ENABLE, enabled).apply()
+            _isDolbyEnabled.value = enabled
+            if (enabled) {
+                restoreSavedProfileIfNeeded()
+            }
         } catch (e: Exception) {
             DolbyConstants.dlog(TAG, "Error setting Dolby enabled: ${e.message}")
         }
@@ -168,9 +175,7 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
 
     fun getCurrentProfile(): Int {
         return try {
-            checkEffect()
-            restoreSavedProfileIfNeeded()
-            dolbyEffect.profile
+            readSavedProfile() ?: 0
         } catch (e: Exception) {
             DolbyConstants.dlog(TAG, "Error getting current profile: ${e.message}")
             0
@@ -178,8 +183,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setCurrentProfile(profile: Int) {
-        if (isReleased) return
-        
         try {
             checkEffect()
             dolbyEffect.profile = profile
@@ -247,7 +250,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setBassEnhancerEnabled(profile: Int, enabled: Boolean) {
-        if (isReleased) return
         
         try {
             checkEffect()
@@ -269,7 +271,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setBassCurve(profile: Int, curve: Int) {
-        if (isReleased) return
         
         try {
             val prefs = getProfilePrefs(profile)
@@ -306,7 +307,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setBassLevel(profile: Int, level: Int) {
-        if (isReleased) return
         
         DolbyConstants.dlog(TAG, "setBassLevel: profile=$profile level=$level")
 
@@ -367,7 +367,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setTrebleLevel(profile: Int, level: Int) {
-        if (isReleased) return
         
         DolbyConstants.dlog(TAG, "setTrebleLevel: profile=$profile level=$level")
 
@@ -433,7 +432,7 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setVolumeLevelerEnabled(profile: Int, enabled: Boolean) {
-        if (!volumeLevelerSupported || isReleased) return
+        if (!volumeLevelerSupported) return
         
         try {
             checkEffect()
@@ -454,7 +453,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setIeqPreset(profile: Int, preset: Int) {
-        if (isReleased) return
         
         try {
             checkEffect()
@@ -475,7 +473,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setHeadphoneVirtualizerEnabled(profile: Int, enabled: Boolean) {
-        if (isReleased) return
         
         try {
             checkEffect()
@@ -496,7 +493,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setSpeakerVirtualizerEnabled(profile: Int, enabled: Boolean) {
-        if (isReleased) return
         
         try {
             checkEffect()
@@ -518,7 +514,7 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setStereoWideningAmount(profile: Int, amount: Int) {
-        if (!stereoWideningSupported || isReleased) return
+        if (!stereoWideningSupported) return
         
         try {
             checkEffect()
@@ -539,7 +535,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setDialogueEnhancerEnabled(profile: Int, enabled: Boolean) {
-        if (isReleased) return
         
         try {
             checkEffect()
@@ -560,7 +555,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setDialogueEnhancerAmount(profile: Int, amount: Int) {
-        if (isReleased) return
         
         try {
             checkEffect()
@@ -587,7 +581,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setEqualizerGains(profile: Int, bandGains: List<BandGain>, bandMode: BandMode) {
-        if (isReleased) return
         
         try {
             checkEffect()
@@ -729,7 +722,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun resetProfile(profile: Int) {
-        if (isReleased) return
         
         try {
             checkEffect()
@@ -741,7 +733,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun resetAllProfiles() {
-        if (isReleased) return
         
         try {
             checkEffect()
@@ -838,7 +829,6 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun setMidLevel(profile: Int, level: Int) {
-        if (isReleased) return
         
         DolbyConstants.dlog(TAG, "setMidLevel: profile=$profile level=$level")
 
@@ -893,25 +883,33 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
         }
     }
     
-    private fun release() {
-        if (!isReleased) {
-            DolbyConstants.dlog(TAG, "Releasing repository resources")
-            isReleased = true
-            try {
-                dolbyEffect.release()
-            } catch (e: Exception) {
-                DolbyConstants.dlog(TAG, "Error releasing effect: ${e.message}")
-            }
+    fun release() {
+        DolbyConstants.dlog(TAG, "Releasing repository resources")
+        try {
+            dolbyEffect.release()
+        } catch (e: Exception) {
+            DolbyConstants.dlog(TAG, "Error releasing effect: ${e.message}")
         }
     }
     
     override fun close() {
-        release()
+        // No-op for singleton repository to prevent transient callers from breaking application state
     }
 
     companion object {
         private const val TAG = "DolbyRepository"
         private const val EFFECT_PRIORITY = 100
+
+        @Volatile
+        private var instance: DolbyRepository? = null
+
+        fun getInstance(context: Context): DolbyRepository {
+            return instance ?: synchronized(this) {
+                instance ?: DolbyRepository(context.applicationContext).also {
+                    instance = it
+                }
+            }
+        }
         
         private const val BASS_GAIN_MULTIPLIER = 1.4f
         private const val MID_GAIN_MULTIPLIER = 1.3f

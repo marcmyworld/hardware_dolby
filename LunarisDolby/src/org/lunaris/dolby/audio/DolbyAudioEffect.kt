@@ -15,16 +15,37 @@ class DolbyAudioEffect(priority: Int, audioSession: Int) : AudioEffect(
 ) {
 
     var dsOn: Boolean
-        get() = getIntParam(EFFECT_PARAM_ENABLE) == 1
+        get() = try {
+            getIntParam(EFFECT_PARAM_ENABLE) == 1 && enabled
+        } catch (e: Exception) {
+            try { enabled } catch (e2: Exception) { false }
+        }
         set(value) {
-            setIntParam(EFFECT_PARAM_ENABLE, if (value) 1 else 0)
-            enabled = value
+            try {
+                setIntParam(EFFECT_PARAM_ENABLE, if (value) 1 else 0)
+            } catch (e: Exception) {
+                DolbyConstants.dlog(TAG, "Error setting EFFECT_PARAM_ENABLE: ${e.message}")
+            }
+            try {
+                enabled = value
+            } catch (e: Exception) {
+                DolbyConstants.dlog(TAG, "Error setting AudioEffect.enabled: ${e.message}")
+            }
         }
 
     var profile: Int
-        get() = getIntParam(EFFECT_PARAM_PROFILE)
+        get() = try {
+            getIntParam(EFFECT_PARAM_PROFILE)
+        } catch (e: Exception) {
+            DolbyConstants.dlog(TAG, "Error getting profile: ${e.message}")
+            0
+        }
         set(value) {
-            setIntParam(EFFECT_PARAM_PROFILE, value)
+            try {
+                setIntParam(EFFECT_PARAM_PROFILE, value)
+            } catch (e: Exception) {
+                DolbyConstants.dlog(TAG, "Error setting profile: ${e.message}")
+            }
         }
 
     private fun setIntParam(param: Int, value: Int) {
@@ -47,19 +68,27 @@ class DolbyAudioEffect(priority: Int, audioSession: Int) : AudioEffect(
 
     fun resetProfileSpecificSettings(profile: Int = this.profile) {
         DolbyConstants.dlog(TAG, "resetProfileSpecificSettings: profile=$profile")
-        setIntParam(EFFECT_PARAM_RESET_PROFILE_SETTINGS, profile)
+        try {
+            setIntParam(EFFECT_PARAM_RESET_PROFILE_SETTINGS, profile)
+        } catch (e: Exception) {
+            DolbyConstants.dlog(TAG, "Error resetting profile specific settings: ${e.message}")
+        }
     }
 
     fun setDapParameter(param: DsParam, values: IntArray, profile: Int = this.profile) {
         DolbyConstants.dlog(TAG, "setDapParameter: profile=$profile param=$param")
-        val length = values.size
-        val buf = ByteArray((length + 4) * 4)
-        int32ToByteArray(EFFECT_PARAM_SET_PROFILE_PARAMETER, buf, 0)
-        int32ToByteArray(length + 1, buf, 4)
-        int32ToByteArray(profile, buf, 8)
-        int32ToByteArray(param.id, buf, 12)
-        int32ArrayToByteArray(values, buf, 16)
-        checkStatus(setParameter(EFFECT_PARAM_CPDP_VALUES, buf))
+        try {
+            val length = values.size
+            val buf = ByteArray((length + 4) * 4)
+            int32ToByteArray(EFFECT_PARAM_SET_PROFILE_PARAMETER, buf, 0)
+            int32ToByteArray(length + 1, buf, 4)
+            int32ToByteArray(profile, buf, 8)
+            int32ToByteArray(param.id, buf, 12)
+            int32ArrayToByteArray(values, buf, 16)
+            checkStatus(setParameter(EFFECT_PARAM_CPDP_VALUES, buf))
+        } catch (e: Exception) {
+            DolbyConstants.dlog(TAG, "Error setting DAP parameter $param: ${e.message}")
+        }
     }
 
     fun setDapParameter(param: DsParam, enable: Boolean, profile: Int = this.profile) =

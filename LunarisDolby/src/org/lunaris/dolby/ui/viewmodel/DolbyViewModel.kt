@@ -20,7 +20,7 @@ import kotlinx.coroutines.cancelChildren
 
 class DolbyViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = DolbyRepository(application)
+    private val repository = DolbyRepository.getInstance(application)
 
     private val _uiState = MutableStateFlow<DolbyUiState>(DolbyUiState.Loading)
     val uiState: StateFlow<DolbyUiState> = _uiState.asStateFlow()
@@ -28,6 +28,7 @@ class DolbyViewModel(application: Application) : AndroidViewModel(application) {
     
     private var speakerStateJob: Job? = null
     private var profileChangeJob: Job? = null
+    private var dolbyEnabledJob: Job? = null
     @Volatile private var isCleared = false
 
     init {
@@ -35,6 +36,7 @@ class DolbyViewModel(application: Application) : AndroidViewModel(application) {
         loadSettings()
         observeSpeakerState()
         observeProfileChanges()
+        observeDolbyEnabled()
     }
     
     private fun observeSpeakerState() {
@@ -55,6 +57,18 @@ class DolbyViewModel(application: Application) : AndroidViewModel(application) {
             repository.currentProfile.collect {
                 if (!isCleared) {
                     DolbyConstants.dlog(TAG, "Profile changed to: $it")
+                    loadSettings()
+                }
+            }
+        }
+    }
+
+    private fun observeDolbyEnabled() {
+        dolbyEnabledJob?.cancel()
+        dolbyEnabledJob = viewModelScope.launch {
+            repository.isDolbyEnabled.collect {
+                if (!isCleared) {
+                    DolbyConstants.dlog(TAG, "Dolby enabled changed: $it")
                     loadSettings()
                 }
             }
@@ -113,6 +127,12 @@ class DolbyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setDolbyEnabled(enabled: Boolean) {
+        val currentState = _uiState.value
+        if (currentState is DolbyUiState.Success) {
+            _uiState.value = currentState.copy(
+                settings = currentState.settings.copy(enabled = enabled)
+            )
+        }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.setDolbyEnabled(enabled)
@@ -321,7 +341,8 @@ class DolbyViewModel(application: Application) : AndroidViewModel(application) {
         speakerStateJob = null
         profileChangeJob?.cancel()
         profileChangeJob = null
-        repository.close()
+        dolbyEnabledJob?.cancel()
+        dolbyEnabledJob = null
         super.onCleared()
     }
     
