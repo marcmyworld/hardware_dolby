@@ -17,6 +17,15 @@
 # Dolby path
 DOLBY_PATH := hardware/dolby
 
+ifeq ($(TARGET_PROVIDES_DOLBY_BLOBS),true)
+# Devices with native vendor dolby blobs (e.g. chenfeng)
+PRODUCT_SOONG_NAMESPACES += \
+    $(DOLBY_PATH)/LunarisDolby
+
+# LunarisDolby
+PRODUCT_PACKAGES += \
+    LunarisDolby
+else
 # Soong Namespace
 PRODUCT_SOONG_NAMESPACES += \
    $(DOLBY_PATH)
@@ -83,5 +92,6 @@ PRODUCT_PACKAGES += \
     libswdap \
     libswgamedap \
     libswspatializer \
-    libswvqe 
+    libswvqe
+endif
 
