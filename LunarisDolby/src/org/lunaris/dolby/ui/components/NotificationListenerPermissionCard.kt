@@ -25,7 +25,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.lunaris.dolby.R
-import org.lunaris.dolby.service.DolbyNotificationListener
+import org.lunaris.dolby.utils.NotificationPermissionHelper
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -33,18 +33,20 @@ fun NotificationListenerPermissionCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var isEnabled by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
+    var isEnabled by remember { mutableStateOf(NotificationPermissionHelper.isNotificationListenerEnabled(context)) }
     var showPermissionDialog by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(Unit) {
-        isEnabled = isNotificationListenerEnabled(context)
+        NotificationPermissionHelper.ensureNotificationListenerEnabled(context)
+        isEnabled = NotificationPermissionHelper.isNotificationListenerEnabled(context)
     }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                isEnabled = isNotificationListenerEnabled(context)
+                NotificationPermissionHelper.ensureNotificationListenerEnabled(context)
+                isEnabled = NotificationPermissionHelper.isNotificationListenerEnabled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -186,12 +188,6 @@ fun NotificationListenerPermissionCard(
             textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
-}
-
-private fun isNotificationListenerEnabled(context: Context): Boolean {
-    val cn = ComponentName(context, DolbyNotificationListener::class.java)
-    val flat = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
-    return flat?.contains(cn.flattenToString()) == true
 }
 
 private fun openNotificationListenerSettings(context: Context) {
