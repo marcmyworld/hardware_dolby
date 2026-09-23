@@ -125,52 +125,52 @@ class DeviceStateManager(private val context: Context) {
             repository.setCurrentProfile(profile, saveDeviceSnapshot = false)
 
             if (prefs.contains(KEY_IEQ)) {
-                repository.setIeqPreset(profile, prefs.getInt(KEY_IEQ, 0))
+                repository.setIeqPreset(profile, prefs.getInt(KEY_IEQ, 0), saveDeviceSnapshot = false)
             }
 
             if (prefs.contains(KEY_HP_VIRT)) {
-                repository.setHeadphoneVirtualizerEnabled(profile, prefs.getBoolean(KEY_HP_VIRT, false))
+                repository.setHeadphoneVirtualizerEnabled(profile, prefs.getBoolean(KEY_HP_VIRT, false), saveDeviceSnapshot = false)
             }
             if (prefs.contains(KEY_SPK_VIRT)) {
-                repository.setSpeakerVirtualizerEnabled(profile, prefs.getBoolean(KEY_SPK_VIRT, false))
+                repository.setSpeakerVirtualizerEnabled(profile, prefs.getBoolean(KEY_SPK_VIRT, false), saveDeviceSnapshot = false)
             }
 
             if (prefs.contains(KEY_DIALOGUE)) {
-                repository.setDialogueEnhancerEnabled(profile, prefs.getBoolean(KEY_DIALOGUE, false))
+                repository.setDialogueEnhancerEnabled(profile, prefs.getBoolean(KEY_DIALOGUE, false), saveDeviceSnapshot = false)
             }
             if (prefs.contains(KEY_DIALOGUE_AMT)) {
-                repository.setDialogueEnhancerAmount(profile, prefs.getInt(KEY_DIALOGUE_AMT, 6))
+                repository.setDialogueEnhancerAmount(profile, prefs.getInt(KEY_DIALOGUE_AMT, 6), saveDeviceSnapshot = false)
             }
 
             if (prefs.contains(KEY_BASS_ENABLED)) {
-                repository.setBassEnhancerEnabled(profile, prefs.getBoolean(KEY_BASS_ENABLED, false))
+                repository.setBassEnhancerEnabled(profile, prefs.getBoolean(KEY_BASS_ENABLED, false), saveDeviceSnapshot = false)
             }
             if (prefs.contains(KEY_BASS_CURVE)) {
-                repository.setBassCurve(profile, prefs.getInt(KEY_BASS_CURVE, 0))
+                repository.setBassCurve(profile, prefs.getInt(KEY_BASS_CURVE, 0), saveDeviceSnapshot = false)
             }
             if (prefs.contains(KEY_BASS_LEVEL)) {
-                repository.setBassLevel(profile, prefs.getInt(KEY_BASS_LEVEL, 0))
+                repository.setBassLevel(profile, prefs.getInt(KEY_BASS_LEVEL, 0), saveDeviceSnapshot = false)
             }
 
             if (prefs.contains(KEY_TREBLE_ENABLED)) {
-                repository.setTrebleEnhancerEnabled(profile, prefs.getBoolean(KEY_TREBLE_ENABLED, false))
+                repository.setTrebleEnhancerEnabled(profile, prefs.getBoolean(KEY_TREBLE_ENABLED, false), saveDeviceSnapshot = false)
             }
             if (prefs.contains(KEY_TREBLE_LEVEL)) {
-                repository.setTrebleLevel(profile, prefs.getInt(KEY_TREBLE_LEVEL, 0))
+                repository.setTrebleLevel(profile, prefs.getInt(KEY_TREBLE_LEVEL, 0), saveDeviceSnapshot = false)
             }
 
             if (prefs.contains(KEY_MID_ENABLED)) {
-                repository.setMidEnhancerEnabled(profile, prefs.getBoolean(KEY_MID_ENABLED, false))
+                repository.setMidEnhancerEnabled(profile, prefs.getBoolean(KEY_MID_ENABLED, false), saveDeviceSnapshot = false)
             }
             if (prefs.contains(KEY_MID_LEVEL)) {
-                repository.setMidLevel(profile, prefs.getInt(KEY_MID_LEVEL, 0))
+                repository.setMidLevel(profile, prefs.getInt(KEY_MID_LEVEL, 0), saveDeviceSnapshot = false)
             }
 
             if (repository.volumeLevelerSupported) {
-                repository.setVolumeLevelerEnabled(profile, prefs.getBoolean(KEY_VOLUME, true))
+                repository.setVolumeLevelerEnabled(profile, prefs.getBoolean(KEY_VOLUME, false), saveDeviceSnapshot = false)
             }
             if (repository.stereoWideningSupported && prefs.contains(KEY_STEREO)) {
-                repository.setStereoWideningAmount(profile, prefs.getInt(KEY_STEREO, 32))
+                repository.setStereoWideningAmount(profile, prefs.getInt(KEY_STEREO, 32), saveDeviceSnapshot = false)
             }
 
             val storedBandCount = prefs.getInt(KEY_EQ_BAND_COUNT, -1)
@@ -184,7 +184,7 @@ class DeviceStateManager(private val context: Context) {
                             gain = g
                         )
                     }
-                    repository.setEqualizerGains(profile, bandGains, BandMode.TWENTY_BAND)
+                    repository.setEqualizerGains(profile, bandGains, BandMode.TWENTY_BAND, saveDeviceSnapshot = false)
                 } else {
                     DolbyConstants.dlog(TAG,
                         "EQ band count mismatch for $deviceKey: stored=$storedBandCount actual=${gains.size} — skipping EQ restore")
@@ -229,7 +229,7 @@ class DeviceStateManager(private val context: Context) {
     companion object {
         private const val TAG = "DeviceStateManager"
 
-        const val SNAPSHOT_VERSION = 2
+        const val SNAPSHOT_VERSION = 3
 
         private const val KEY_VERSION = "snapshot_version"
         private const val KEY_PROFILE = "profile"

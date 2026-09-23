@@ -105,6 +105,7 @@ class DolbyEffectService : Service() {
                 if (!restored) {
                     Log.d(TAG, "First time device, applying saved state as base")
                     repository.applySavedState()
+                    deviceStateManager.saveSnapshot(newKey, repository, force = true)
                 }
             } else {
                 Log.d(TAG, "Device state memory disabled, applying saved state")

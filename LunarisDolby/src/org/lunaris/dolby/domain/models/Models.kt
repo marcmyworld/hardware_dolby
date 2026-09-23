@@ -26,7 +26,7 @@ data class DolbySettings(
     val enabled: Boolean = true,
     val currentProfile: Int = 0,
     val bassEnhancerEnabled: Boolean = false,
-    val volumeLevelerEnabled: Boolean = true,
+    val volumeLevelerEnabled: Boolean = false,
     val bandMode: BandMode = BandMode.TEN_BAND
 )
 
