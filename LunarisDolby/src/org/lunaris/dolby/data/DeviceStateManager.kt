@@ -25,10 +25,18 @@ class DeviceStateManager(private val context: Context) {
                 val addr = device.address?.takeIf { it.isNotBlank() } ?: "unknown"
                 "bt_${addr.replace(":", "_")}"
             }
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_ACCESSORY -> {
+                val name = device.productName?.toString()?.trim()
+                    ?.replace("[^a-zA-Z0-9_]".toRegex(), "_")
+                    ?.takeIf { it.isNotBlank() }
+                if (name != null) "usb_$name" else "usb_audio"
+            }
             AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
             AudioDeviceInfo.TYPE_WIRED_HEADSET,
-            AudioDeviceInfo.TYPE_USB_HEADSET,
-            AudioDeviceInfo.TYPE_USB_DEVICE -> "wired_headphones"
+            AudioDeviceInfo.TYPE_LINE_ANALOG,
+            AudioDeviceInfo.TYPE_LINE_DIGITAL -> "wired_headphones"
             AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "builtin_speaker"
             else -> "device_type_${device.type}"
         }
@@ -39,9 +47,12 @@ class DeviceStateManager(private val context: Context) {
         return when (device.type) {
             AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Phone Speaker"
             AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-            AudioDeviceInfo.TYPE_WIRED_HEADSET -> productName ?: "Wired Headphones"
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_LINE_ANALOG,
+            AudioDeviceInfo.TYPE_LINE_DIGITAL -> productName ?: "Wired Headphones"
             AudioDeviceInfo.TYPE_USB_HEADSET,
-            AudioDeviceInfo.TYPE_USB_DEVICE -> productName ?: "USB Audio"
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_ACCESSORY -> productName ?: "USB Audio"
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
             AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
             AudioDeviceInfo.TYPE_BLE_HEADSET,
@@ -51,14 +62,17 @@ class DeviceStateManager(private val context: Context) {
         }
     }
 
-    fun saveSnapshot(deviceKey: String, repository: DolbyRepository) {
+    fun saveSnapshot(deviceKey: String, repository: DolbyRepository, force: Boolean = false) {
+        if (!force && !repository.getDolbyEnabled()) {
+            DolbyConstants.dlog(TAG, "Dolby disabled, skipping snapshot save for device=$deviceKey")
+            return
+        }
         val profile = repository.getCurrentProfile()
         val prefs = getDevicePrefs(deviceKey)
         val editor = prefs.edit()
 
         editor.putInt(KEY_VERSION, SNAPSHOT_VERSION)
 
-        editor.putBoolean(KEY_DOLBY_ENABLED, repository.getDolbyEnabled())
         editor.putInt(KEY_PROFILE, profile)
 
         editor.putInt(KEY_IEQ, repository.getIeqPreset(profile))
@@ -93,10 +107,39 @@ class DeviceStateManager(private val context: Context) {
         editor.apply()
         DolbyConstants.dlog(TAG,
             "Snapshot saved for device=$deviceKey profile=$profile bands=${gains.size} v=$SNAPSHOT_VERSION")
+
+        if (deviceKey.startsWith("usb_")) {
+            try {
+                val wiredEditor = getDevicePrefs("wired_headphones").edit()
+                prefs.all.forEach { (k, v) ->
+                    when (v) {
+                        is Boolean -> wiredEditor.putBoolean(k, v)
+                        is Int -> wiredEditor.putInt(k, v)
+                        is String -> wiredEditor.putString(k, v)
+                        is Float -> wiredEditor.putFloat(k, v)
+                        is Long -> wiredEditor.putLong(k, v)
+                    }
+                }
+                wiredEditor.apply()
+            } catch (_: Exception) {}
+        }
     }
 
     fun restoreSnapshot(deviceKey: String, repository: DolbyRepository): Boolean {
-        val prefs = getDevicePrefs(deviceKey)
+        if (!repository.getDolbyEnabled()) {
+            DolbyConstants.dlog(TAG, "Dolby disabled, skipping snapshot restore for device=$deviceKey")
+            return false
+        }
+
+        var prefs = getDevicePrefs(deviceKey)
+
+        if (!prefs.contains(KEY_VERSION) && deviceKey.startsWith("usb_")) {
+            val fallback = getDevicePrefs("wired_headphones")
+            if (fallback.contains(KEY_VERSION)) {
+                DolbyConstants.dlog(TAG, "Using fallback wired_headphones snapshot for $deviceKey")
+                prefs = fallback
+            }
+        }
 
         if (!prefs.contains(KEY_VERSION)) {
             DolbyConstants.dlog(TAG, "No snapshot for device=$deviceKey")
@@ -112,35 +155,57 @@ class DeviceStateManager(private val context: Context) {
         }
 
         return try {
-            val enabled = prefs.getBoolean(KEY_DOLBY_ENABLED, true)
             val profile = prefs.getInt(KEY_PROFILE, 0)
 
-            repository.setDolbyEnabled(enabled)
-            repository.setCurrentProfile(profile)
+            repository.setCurrentProfile(profile, saveDeviceSnapshot = false)
 
-            repository.setIeqPreset(profile, prefs.getInt(KEY_IEQ, 0))
+            if (prefs.contains(KEY_IEQ)) {
+                repository.setIeqPreset(profile, prefs.getInt(KEY_IEQ, 0), saveDeviceSnapshot = false)
+            }
 
-            repository.setHeadphoneVirtualizerEnabled(profile, prefs.getBoolean(KEY_HP_VIRT, false))
-            repository.setSpeakerVirtualizerEnabled(profile, prefs.getBoolean(KEY_SPK_VIRT, false))
+            if (prefs.contains(KEY_HP_VIRT)) {
+                repository.setHeadphoneVirtualizerEnabled(profile, prefs.getBoolean(KEY_HP_VIRT, false), saveDeviceSnapshot = false)
+            }
+            if (prefs.contains(KEY_SPK_VIRT)) {
+                repository.setSpeakerVirtualizerEnabled(profile, prefs.getBoolean(KEY_SPK_VIRT, false), saveDeviceSnapshot = false)
+            }
 
-            repository.setDialogueEnhancerEnabled(profile, prefs.getBoolean(KEY_DIALOGUE, false))
-            repository.setDialogueEnhancerAmount(profile, prefs.getInt(KEY_DIALOGUE_AMT, 6))
+            if (prefs.contains(KEY_DIALOGUE)) {
+                repository.setDialogueEnhancerEnabled(profile, prefs.getBoolean(KEY_DIALOGUE, false), saveDeviceSnapshot = false)
+            }
+            if (prefs.contains(KEY_DIALOGUE_AMT)) {
+                repository.setDialogueEnhancerAmount(profile, prefs.getInt(KEY_DIALOGUE_AMT, 6), saveDeviceSnapshot = false)
+            }
 
-            repository.setBassEnhancerEnabled(profile, prefs.getBoolean(KEY_BASS_ENABLED, false))
-            repository.setBassCurve(profile, prefs.getInt(KEY_BASS_CURVE, 0))
-            repository.setBassLevel(profile, prefs.getInt(KEY_BASS_LEVEL, 0))
+            if (prefs.contains(KEY_BASS_ENABLED)) {
+                repository.setBassEnhancerEnabled(profile, prefs.getBoolean(KEY_BASS_ENABLED, false), saveDeviceSnapshot = false)
+            }
+            if (prefs.contains(KEY_BASS_CURVE)) {
+                repository.setBassCurve(profile, prefs.getInt(KEY_BASS_CURVE, 0), saveDeviceSnapshot = false)
+            }
+            if (prefs.contains(KEY_BASS_LEVEL)) {
+                repository.setBassLevel(profile, prefs.getInt(KEY_BASS_LEVEL, 0), saveDeviceSnapshot = false)
+            }
 
-            repository.setTrebleEnhancerEnabled(profile, prefs.getBoolean(KEY_TREBLE_ENABLED, false))
-            repository.setTrebleLevel(profile, prefs.getInt(KEY_TREBLE_LEVEL, 0))
+            if (prefs.contains(KEY_TREBLE_ENABLED)) {
+                repository.setTrebleEnhancerEnabled(profile, prefs.getBoolean(KEY_TREBLE_ENABLED, false), saveDeviceSnapshot = false)
+            }
+            if (prefs.contains(KEY_TREBLE_LEVEL)) {
+                repository.setTrebleLevel(profile, prefs.getInt(KEY_TREBLE_LEVEL, 0), saveDeviceSnapshot = false)
+            }
 
-            repository.setMidEnhancerEnabled(profile, prefs.getBoolean(KEY_MID_ENABLED, false))
-            repository.setMidLevel(profile, prefs.getInt(KEY_MID_LEVEL, 0))
+            if (prefs.contains(KEY_MID_ENABLED)) {
+                repository.setMidEnhancerEnabled(profile, prefs.getBoolean(KEY_MID_ENABLED, false), saveDeviceSnapshot = false)
+            }
+            if (prefs.contains(KEY_MID_LEVEL)) {
+                repository.setMidLevel(profile, prefs.getInt(KEY_MID_LEVEL, 0), saveDeviceSnapshot = false)
+            }
 
             if (repository.volumeLevelerSupported) {
-                repository.setVolumeLevelerEnabled(profile, prefs.getBoolean(KEY_VOLUME, false))
+                repository.setVolumeLevelerEnabled(profile, prefs.getBoolean(KEY_VOLUME, false), saveDeviceSnapshot = false)
             }
-            if (repository.stereoWideningSupported) {
-                repository.setStereoWideningAmount(profile, prefs.getInt(KEY_STEREO, 32))
+            if (repository.stereoWideningSupported && prefs.contains(KEY_STEREO)) {
+                repository.setStereoWideningAmount(profile, prefs.getInt(KEY_STEREO, 32), saveDeviceSnapshot = false)
             }
 
             val storedBandCount = prefs.getInt(KEY_EQ_BAND_COUNT, -1)
@@ -154,7 +219,7 @@ class DeviceStateManager(private val context: Context) {
                             gain = g
                         )
                     }
-                    repository.setEqualizerGains(profile, bandGains, BandMode.TWENTY_BAND)
+                    repository.setEqualizerGains(profile, bandGains, BandMode.TWENTY_BAND, saveDeviceSnapshot = false)
                 } else {
                     DolbyConstants.dlog(TAG,
                         "EQ band count mismatch for $deviceKey: stored=$storedBandCount actual=${gains.size} — skipping EQ restore")
@@ -174,8 +239,16 @@ class DeviceStateManager(private val context: Context) {
 
     fun hasSnapshot(deviceKey: String): Boolean {
         val prefs = getDevicePrefs(deviceKey)
-        return prefs.contains(KEY_VERSION) &&
-                prefs.getInt(KEY_VERSION, -1) == SNAPSHOT_VERSION
+        if (prefs.contains(KEY_VERSION) &&
+                prefs.getInt(KEY_VERSION, -1) == SNAPSHOT_VERSION) {
+            return true
+        }
+        if (deviceKey.startsWith("usb_")) {
+            val fallback = getDevicePrefs("wired_headphones")
+            return fallback.contains(KEY_VERSION) &&
+                    fallback.getInt(KEY_VERSION, -1) == SNAPSHOT_VERSION
+        }
+        return false
     }
 
     fun clearSnapshot(deviceKey: String) {
@@ -199,10 +272,9 @@ class DeviceStateManager(private val context: Context) {
     companion object {
         private const val TAG = "DeviceStateManager"
 
-        const val SNAPSHOT_VERSION = 1
+        const val SNAPSHOT_VERSION = 3
 
         private const val KEY_VERSION = "snapshot_version"
-        private const val KEY_DOLBY_ENABLED = "enabled"
         private const val KEY_PROFILE = "profile"
         private const val KEY_IEQ = "ieq"
         private const val KEY_HP_VIRT = "hp_virt"

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import org.lunaris.dolby.DolbyConstants
+import org.lunaris.dolby.data.DolbyRepository
 import org.lunaris.dolby.ui.screens.DolbyNavHost
 import org.lunaris.dolby.ui.theme.DolbyTheme
 import org.lunaris.dolby.ui.viewmodel.DolbyViewModel
@@ -29,6 +30,7 @@ class DolbyActivity : ComponentActivity() {
 
     private val dolbyViewModel: DolbyViewModel by viewModels()
     private val equalizerViewModel: EqualizerViewModel by viewModels()
+    private val repository by lazy { DolbyRepository.getInstance(this) }
     
     private val audioManager by lazy { getSystemService(AudioManager::class.java) }
     private val handler = Handler(Looper.getMainLooper())
@@ -40,8 +42,11 @@ class DolbyActivity : ComponentActivity() {
         override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
             if (isActivityActive) {
                 DolbyConstants.dlog(TAG, "Audio device added")
+                val addedSink = addedDevices.firstOrNull { it.isSink }
                 handler.post {
-                    dolbyViewModel.updateSpeakerState()
+                    repository.handleDeviceChange(addedSink)
+                    dolbyViewModel.loadSettings()
+                    equalizerViewModel.loadEqualizer()
                 }
             }
         }
@@ -50,7 +55,9 @@ class DolbyActivity : ComponentActivity() {
             if (isActivityActive) {
                 DolbyConstants.dlog(TAG, "Audio device removed")
                 handler.post {
-                    dolbyViewModel.updateSpeakerState()
+                    repository.handleDeviceChange()
+                    dolbyViewModel.loadSettings()
+                    equalizerViewModel.loadEqualizer()
                 }
             }
         }
@@ -68,13 +75,17 @@ class DolbyActivity : ComponentActivity() {
             DolbyConstants.dlog(TAG, "Lifecycle: onStart")
             isActivityActive = true
             registerAudioCallback()
+            repository.handleDeviceChange()
             dolbyViewModel.loadSettings()
+            equalizerViewModel.loadEqualizer()
         }
         
         override fun onResume(owner: LifecycleOwner) {
             super.onResume(owner)
             DolbyConstants.dlog(TAG, "Lifecycle: onResume")
-            dolbyViewModel.updateSpeakerState()
+            repository.handleDeviceChange()
+            dolbyViewModel.loadSettings()
+            equalizerViewModel.loadEqualizer()
         }
         
         override fun onPause(owner: LifecycleOwner) {

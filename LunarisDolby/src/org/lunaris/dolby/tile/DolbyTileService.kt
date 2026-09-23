@@ -10,10 +10,11 @@ import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import org.lunaris.dolby.R
 import org.lunaris.dolby.data.DolbyRepository
+import org.lunaris.dolby.service.DolbyEffectService
 
 class DolbyTileService : TileService() {
 
-    private val repository by lazy { DolbyRepository(applicationContext) }
+    private val repository by lazy { DolbyRepository.getInstance(applicationContext) }
 
     override fun onStartListening() {
         super.onStartListening()
@@ -22,8 +23,13 @@ class DolbyTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        val enabled = repository.getDolbyEnabled()
-        repository.setDolbyEnabled(!enabled)
+        val newState = !repository.getDolbyEnabled()
+        repository.setDolbyEnabled(newState)
+        if (newState) {
+            DolbyEffectService.start(this)
+        } else {
+            DolbyEffectService.stop(this)
+        }
         updateTile()
     }
 

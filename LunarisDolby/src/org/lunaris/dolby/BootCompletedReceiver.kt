@@ -16,6 +16,8 @@ import org.lunaris.dolby.service.AppProfileMonitorService
 import org.lunaris.dolby.service.DolbyEffectService
 import org.lunaris.dolby.service.DolbyNotificationListener
 
+import org.lunaris.dolby.utils.NotificationPermissionHelper
+
 class BootCompletedReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -24,16 +26,19 @@ class BootCompletedReceiver : BroadcastReceiver() {
             Intent.ACTION_LOCKED_BOOT_COMPLETED,
             Intent.ACTION_BOOT_COMPLETED -> {
                 try {
-                    val repository = DolbyRepository(context)
-                    
-                    DolbyEffectService.start(context)
+                    NotificationPermissionHelper.ensureNotificationListenerEnabled(context)
+
+                    val repository = DolbyRepository.getInstance(context)
+                    if (repository.getDolbyEnabled()) {
+                        DolbyEffectService.start(context)
+                    }
                     
                     val prefs = context.getSharedPreferences("dolby_prefs", Context.MODE_PRIVATE)
                     if (prefs.getBoolean("app_profile_monitoring_enabled", false)) {
                         AppProfileMonitorService.startMonitoring(context)
                     }
                     
-                    if (isNotificationListenerEnabled(context)) {
+                    if (NotificationPermissionHelper.isNotificationListenerEnabled(context)) {
                         requestNotificationListenerRebind(context)
                     }
                 } catch (e: Exception) {
@@ -41,12 +46,6 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 }
             }
         }
-    }
-
-    private fun isNotificationListenerEnabled(context: Context): Boolean {
-        val cn = ComponentName(context, DolbyNotificationListener::class.java)
-        val flat = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
-        return flat?.contains(cn.flattenToString()) == true
     }
 
     private fun requestNotificationListenerRebind(context: Context) {
