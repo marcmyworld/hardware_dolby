@@ -18,7 +18,7 @@ android_app {
     system_ext_specific: true,
     privileged: true,
 
-    overrides: ["MusicFX", "AudioFX"],
+    overrides: ["MusicFX", "AudioFX", "DolbyAtmos", "Dolby", "MotoDolby"],
     static_libs: [
         "androidx.activity_activity-compose",
         "androidx.compose.animation_animation",
@@ -48,16 +48,16 @@ android_app {
 
 prebuilt_etc {
     name: "preinstalled-packages-platform-lunarisdolby.xml",
-    src: "preinstalled-packages-platform-dolby.xml",
-    filename: "preinstalled-packages-platform-dolby.xml",
+    src: "preinstalled-packages-platform-lunarisdolby.xml",
+    filename: "preinstalled-packages-platform-lunarisdolby.xml",
     sub_dir: "sysconfig",
     system_ext_specific: true,
 }
 
 prebuilt_etc {
     name: "privapp-permissions-lunarisdolby.xml",
-    src: "privapp-permissions-dolby.xml",
-    filename: "privapp-permissions-dolby.xml",
+    src: "privapp-permissions-lunarisdolby.xml",
+    filename: "privapp-permissions-lunarisdolby.xml",
     sub_dir: "permissions",
     system_ext_specific: true,
 }
