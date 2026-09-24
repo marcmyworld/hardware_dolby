@@ -210,37 +210,59 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
             null
         }
 
+        // If media routing reports a non-speaker sink, map to connected output device
         if (routedDevice != null && routedDevice.type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
             val routedAddress = routedDevice.address.orEmpty()
             val match = outputs.firstOrNull { device ->
-                device.isSink &&
-                    device.type == routedDevice.type &&
+                device.type == routedDevice.type &&
                     (routedAddress.isEmpty() || device.address == routedAddress)
             } ?: outputs.firstOrNull { device ->
-                device.isSink && device.type == routedDevice.type
+                device.type == routedDevice.type
             }
             if (match != null) return match
         }
+
+        // When media playback is paused or idle, AOSP getDevicesForAttributes(ATTRIBUTES_MEDIA)
+        // frequently reports TYPE_BUILTIN_SPEAKER or null because no AudioTrack is actively streaming.
+        // If a previously active external device is still physically connected, preserve it!
+        val lastKey = lastActiveDeviceKey
+        if (!lastKey.isNullOrEmpty() && lastKey != "builtin_speaker") {
+            val matchingConnected = outputs.firstOrNull { device ->
+                device.isSink && deviceStateManager.deviceKey(device) == lastKey
+            }
+            if (matchingConnected != null) {
+                return matchingConnected
+            }
+        }
+
+        // If no prior key or previous device disconnected, check for any connected external sink
+        val usbDevice = outputs.firstOrNull {
+            it.isSink && (it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                it.type == AudioDeviceInfo.TYPE_USB_ACCESSORY)
+        }
+        if (usbDevice != null) return usbDevice
+
+        val wiredDevice = outputs.firstOrNull {
+            it.isSink && (it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_LINE_ANALOG ||
+                it.type == AudioDeviceInfo.TYPE_LINE_DIGITAL ||
+                it.type == AudioDeviceInfo.TYPE_AUX_LINE)
+        }
+        if (wiredDevice != null) return wiredDevice
 
         val bt = outputs.firstOrNull {
             it.isSink && (it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
                 it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
                 it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
-                it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST)
+                it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST ||
+                it.type == AudioDeviceInfo.TYPE_HEARING_AID ||
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
         }
         if (bt != null) return bt
 
-        val wiredOrUsb = outputs.firstOrNull {
-            it.isSink && (it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
-                it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
-                it.type == AudioDeviceInfo.TYPE_USB_ACCESSORY ||
-                it.type == AudioDeviceInfo.TYPE_LINE_ANALOG ||
-                it.type == AudioDeviceInfo.TYPE_LINE_DIGITAL)
-        }
-        if (wiredOrUsb != null) return wiredOrUsb
-
+        // Only fall back to speaker if no external audio devices exist
         return outputs.firstOrNull { it.isSink && it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
     }
 
@@ -251,7 +273,7 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
         return if (dev != null) deviceStateManager.deviceKey(dev) else "builtin_speaker"
     }
 
-    fun handleDeviceChange(preferredDevice: AudioDeviceInfo? = null): Boolean {
+    fun handleDeviceChange(preferredDevice: AudioDeviceInfo? = null, forceReapply: Boolean = false): Boolean {
         synchronized(this) {
             val currentDevice = preferredDevice ?: getActiveOutputDevice()
             val currentKey = if (currentDevice != null) {
@@ -262,14 +284,14 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
 
             val previousKey = lastActiveDeviceKey
 
-            if (previousKey != null && previousKey == currentKey) {
+            if (!forceReapply && previousKey != null && previousKey == currentKey) {
                 DolbyConstants.dlog(TAG, "Device unchanged: $currentKey")
                 return false
             }
 
-            DolbyConstants.dlog(TAG, "Device routing changed: previous=$previousKey, current=$currentKey")
+            DolbyConstants.dlog(TAG, "Device routing changed: previous=$previousKey, current=$currentKey, forceReapply=$forceReapply")
 
-            if (previousKey != null && isDeviceStateMemoryEnabled && getDolbyEnabled()) {
+            if (previousKey != null && previousKey != currentKey && isDeviceStateMemoryEnabled && getDolbyEnabled()) {
                 DolbyConstants.dlog(TAG, "Saving snapshot for previous device: $previousKey")
                 deviceStateManager.saveSnapshot(previousKey, this, force = true)
             }
@@ -277,7 +299,7 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
             lastActiveDeviceKey = currentKey
 
             if (isDeviceStateMemoryEnabled && getDolbyEnabled()) {
-                DolbyConstants.dlog(TAG, "Restoring snapshot for new device: $currentKey")
+                DolbyConstants.dlog(TAG, "Restoring snapshot for device: $currentKey")
                 val restored = deviceStateManager.restoreSnapshot(currentKey, this)
                 if (!restored) {
                     DolbyConstants.dlog(TAG, "No snapshot for $currentKey, applying saved profile as base")

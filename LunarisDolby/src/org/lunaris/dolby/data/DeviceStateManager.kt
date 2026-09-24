@@ -21,9 +21,17 @@ class DeviceStateManager(private val context: Context) {
             AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
             AudioDeviceInfo.TYPE_BLE_HEADSET,
             AudioDeviceInfo.TYPE_BLE_SPEAKER,
-            AudioDeviceInfo.TYPE_BLE_BROADCAST -> {
-                val addr = device.address?.takeIf { it.isNotBlank() } ?: "unknown"
-                "bt_${addr.replace(":", "_")}"
+            AudioDeviceInfo.TYPE_BLE_BROADCAST,
+            AudioDeviceInfo.TYPE_HEARING_AID -> {
+                val addr = device.address?.takeIf { it.isNotBlank() }
+                if (addr != null) {
+                    "bt_${addr.replace(":", "_")}"
+                } else {
+                    val name = device.productName?.toString()?.trim()
+                        ?.replace("[^a-zA-Z0-9_]".toRegex(), "_")
+                        ?.takeIf { it.isNotBlank() }
+                    if (name != null) "bt_$name" else "bt_audio"
+                }
             }
             AudioDeviceInfo.TYPE_USB_HEADSET,
             AudioDeviceInfo.TYPE_USB_DEVICE,
@@ -36,7 +44,8 @@ class DeviceStateManager(private val context: Context) {
             AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
             AudioDeviceInfo.TYPE_WIRED_HEADSET,
             AudioDeviceInfo.TYPE_LINE_ANALOG,
-            AudioDeviceInfo.TYPE_LINE_DIGITAL -> "wired_headphones"
+            AudioDeviceInfo.TYPE_LINE_DIGITAL,
+            AudioDeviceInfo.TYPE_AUX_LINE -> "wired_headphones"
             AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "builtin_speaker"
             else -> "device_type_${device.type}"
         }

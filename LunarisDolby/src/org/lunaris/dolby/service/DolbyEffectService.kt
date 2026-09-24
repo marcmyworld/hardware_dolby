@@ -49,7 +49,7 @@ class DolbyEffectService : Service() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
             val isActive = configs?.any { it.isActive } == true
             if (isActive) {
-                repository.handleDeviceChange()
+                repository.handleDeviceChange(forceReapply = true)
             }
         }
     }

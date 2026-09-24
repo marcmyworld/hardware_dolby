@@ -57,16 +57,11 @@ class DolbyNotificationListener : NotificationListenerService() {
 
     private fun initializeDolbySettings() {
         try {
-            val prefs = getSharedPreferences("dolby_prefs", MODE_PRIVATE)
-            val savedProfile = prefs.getString(DolbyConstants.PREF_PROFILE, "0")?.toIntOrNull() ?: 0
-            val enabled = prefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
-            DolbyConstants.dlog(TAG, "Initializing Dolby - enabled: $enabled, profile: $savedProfile")
-            if (enabled) {
-                dolbyRepository.setCurrentProfile(savedProfile)
-                dolbyRepository.setDolbyEnabled(true)
+            if (dolbyRepository.getDolbyEnabled()) {
+                DolbyEffectService.start(this)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize Dolby settings", e)
+            Log.e(TAG, "Failed to start Dolby service", e)
         }
     }
 

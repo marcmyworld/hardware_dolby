@@ -110,7 +110,10 @@ class AppProfileMonitorService : Service() {
                 pendingSwitchRunnable = null
             }
             
-            if (hasOriginalProfile && originalProfile >= 0) {
+            if (dolbyRepository.isDeviceStateMemoryEnabled) {
+                DolbyConstants.dlog(TAG, "Restoring active device snapshot on stop monitoring")
+                dolbyRepository.restoreCurrentDeviceSnapshot()
+            } else if (hasOriginalProfile && originalProfile >= 0) {
                 DolbyConstants.dlog(TAG, "Restoring original profile: $originalProfile")
                 dolbyRepository.setCurrentProfile(originalProfile)
                 
@@ -199,7 +202,10 @@ class AppProfileMonitorService : Service() {
                                     )
                                 }
                             } else {
-                                if (hasOriginalProfile && originalProfile >= 0) {
+                                if (dolbyRepository.isDeviceStateMemoryEnabled) {
+                                    DolbyConstants.dlog(TAG, "Restoring active device snapshot for $packageName")
+                                    dolbyRepository.restoreCurrentDeviceSnapshot()
+                                } else if (hasOriginalProfile && originalProfile >= 0) {
                                     val currentProfile = prefs.getString(DolbyConstants.PREF_PROFILE, "0")?.toIntOrNull() ?: 0
                                     
                                     if (currentProfile != originalProfile) {
