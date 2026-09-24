@@ -194,7 +194,27 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
     }
 
     @Volatile
-    private var lastActiveDeviceKey: String? = null
+    private var cachedActiveDeviceKey: String? = null
+
+    var lastActiveDeviceKey: String?
+        get() {
+            if (cachedActiveDeviceKey == null) {
+                cachedActiveDeviceKey = defaultPrefs.getString(DolbyConstants.PREF_LAST_ACTIVE_DEVICE, null)
+            }
+            return cachedActiveDeviceKey
+        }
+        set(value) {
+            cachedActiveDeviceKey = value
+            try {
+                if (value != null) {
+                    defaultPrefs.edit().putString(DolbyConstants.PREF_LAST_ACTIVE_DEVICE, value).apply()
+                } else {
+                    defaultPrefs.edit().remove(DolbyConstants.PREF_LAST_ACTIVE_DEVICE).apply()
+                }
+            } catch (e: Exception) {
+                DolbyConstants.dlog(TAG, "Failed to persist lastActiveDeviceKey: ${e.message}")
+            }
+        }
 
     fun getActiveOutputDevice(): AudioDeviceInfo? {
         val outputs: Array<AudioDeviceInfo> = try {

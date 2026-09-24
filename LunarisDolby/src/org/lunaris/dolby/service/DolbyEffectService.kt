@@ -74,6 +74,18 @@ class DolbyEffectService : Service() {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.d(TAG, "onTaskRemoved: restarting DolbyEffectService")
+        val restartIntent = Intent(applicationContext, DolbyEffectService::class.java)
+        restartIntent.setPackage(packageName)
+        try {
+            startService(restartIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to restart DolbyEffectService onTaskRemoved", e)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)

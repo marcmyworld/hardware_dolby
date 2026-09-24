@@ -6,6 +6,12 @@
 package org.lunaris.dolby.service
 
 import android.content.Intent
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.media.AudioPlaybackConfiguration
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -17,7 +23,45 @@ class DolbyNotificationListener : NotificationListenerService() {
 
     private lateinit var appProfileManager: AppProfileManager
     private lateinit var dolbyRepository: DolbyRepository
+    private val audioManager by lazy { getSystemService(AudioManager::class.java) }
+    private val handler = Handler(Looper.getMainLooper())
     private var lastActivePackage: String? = null
+
+    private val checkRoutingRunnable = Runnable {
+        if (::dolbyRepository.isInitialized) {
+            dolbyRepository.handleDeviceChange()
+        }
+    }
+
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
+            DolbyConstants.dlog(TAG, "Devices added: ${addedDevices.map { it.productName }}")
+            if (::dolbyRepository.isInitialized) {
+                val addedSink = addedDevices.firstOrNull { it.isSink }
+                dolbyRepository.handleDeviceChange(addedSink)
+                handler.removeCallbacks(checkRoutingRunnable)
+                handler.postDelayed(checkRoutingRunnable, 300)
+            }
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) {
+            DolbyConstants.dlog(TAG, "Devices removed: ${removedDevices.map { it.productName }}")
+            if (::dolbyRepository.isInitialized) {
+                dolbyRepository.handleDeviceChange()
+                handler.removeCallbacks(checkRoutingRunnable)
+                handler.postDelayed(checkRoutingRunnable, 300)
+            }
+        }
+    }
+
+    private val playbackCallback = object : AudioManager.AudioPlaybackCallback() {
+        override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
+            val isActive = configs?.any { it.isActive } == true
+            if (isActive && ::dolbyRepository.isInitialized) {
+                dolbyRepository.handleDeviceChange(forceReapply = true)
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -26,6 +70,14 @@ class DolbyNotificationListener : NotificationListenerService() {
         dolbyRepository = DolbyRepository.getInstance(this)
         initializeDolbySettings()
         startAppProfileMonitoringIfEnabled()
+
+        try {
+            audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler)
+            audioManager.registerAudioPlaybackCallback(playbackCallback, handler)
+            dolbyRepository.handleDeviceChange()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register audio callbacks: ${e.message}")
+        }
     }
 
     override fun onListenerConnected() {
@@ -33,6 +85,9 @@ class DolbyNotificationListener : NotificationListenerService() {
         DolbyConstants.dlog(TAG, "NotificationListener connected")
         initializeDolbySettings()
         startAppProfileMonitoringIfEnabled()
+        if (::dolbyRepository.isInitialized) {
+            dolbyRepository.handleDeviceChange()
+        }
     }
 
     override fun onListenerDisconnected() {
@@ -90,6 +145,13 @@ class DolbyNotificationListener : NotificationListenerService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        try {
+            audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
+            audioManager.unregisterAudioPlaybackCallback(playbackCallback)
+            handler.removeCallbacksAndMessages(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to unregister audio callbacks: ${e.message}")
+        }
         DolbyConstants.dlog(TAG, "NotificationListener destroyed")
     }
 

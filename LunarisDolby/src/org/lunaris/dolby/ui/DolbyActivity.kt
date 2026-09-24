@@ -113,6 +113,11 @@ class DolbyActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         DolbyConstants.dlog(TAG, "Activity onCreate")
         org.lunaris.dolby.utils.NotificationPermissionHelper.ensureNotificationListenerEnabled(this)
+        try {
+            org.lunaris.dolby.service.DolbyEffectService.start(this)
+        } catch (e: Exception) {
+            DolbyConstants.dlog(TAG, "Failed to start DolbyEffectService: ${e.message}")
+        }
         lifecycle.addObserver(lifecycleObserver)
         
         setContent {
