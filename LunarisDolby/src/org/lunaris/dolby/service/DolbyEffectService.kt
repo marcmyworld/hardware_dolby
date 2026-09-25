@@ -25,30 +25,40 @@ class DolbyEffectService : Service() {
     private lateinit var repository: DolbyRepository
 
     private val checkRoutingRunnable = Runnable {
+        Log.i(TAG, "checkRoutingRunnable: verifying active audio route")
         repository.handleDeviceChange()
     }
 
     private val audioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
-            Log.d(TAG, "Devices added: ${addedDevices.map { it.debugString() }}")
-            val addedSink = addedDevices.firstOrNull { it.isSink }
-            repository.handleDeviceChange(addedSink)
+            Log.i(TAG, "Devices added: ${addedDevices.map { it.debugString() }}")
+            val addedSink = addedDevices.firstOrNull { it.isSink && !repository.isBuiltinOutput(it.type) }
+            if (addedSink != null) {
+                repository.handleDeviceChange(addedSink, forceReapply = true)
+            } else {
+                repository.handleDeviceChange()
+            }
             handler.removeCallbacks(checkRoutingRunnable)
-            handler.postDelayed(checkRoutingRunnable, 300)
+            handler.postDelayed(checkRoutingRunnable, 500)
         }
 
         override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) {
-            Log.d(TAG, "Devices removed: ${removedDevices.map { it.debugString() }}")
+            Log.i(TAG, "Devices removed: ${removedDevices.map { it.debugString() }}")
             repository.handleDeviceChange()
             handler.removeCallbacks(checkRoutingRunnable)
-            handler.postDelayed(checkRoutingRunnable, 300)
+            handler.postDelayed(checkRoutingRunnable, 500)
         }
     }
 
     private val playbackCallback = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
-            val isActive = configs?.any { it.isActive } == true
-            if (isActive) {
+            val activeConfigs = configs?.filter { it.isActive && it.audioDeviceInfo != null && it.audioDeviceInfo.isSink }
+            val externalSink = activeConfigs?.firstOrNull { !repository.isBuiltinOutput(it.audioDeviceInfo.type) }?.audioDeviceInfo
+            val targetDevice = externalSink ?: activeConfigs?.firstOrNull()?.audioDeviceInfo
+            if (targetDevice != null) {
+                Log.i(TAG, "playbackConfigChanged: active playback device=${targetDevice.debugString()}")
+                repository.handleDeviceChange(targetDevice)
+            } else if (configs?.any { it.isActive } == true) {
                 repository.handleDeviceChange(forceReapply = true)
             }
         }

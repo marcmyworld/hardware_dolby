@@ -42,7 +42,7 @@ class DolbyActivity : ComponentActivity() {
         override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
             if (isActivityActive) {
                 DolbyConstants.dlog(TAG, "Audio device added")
-                val addedSink = addedDevices.firstOrNull { it.isSink }
+                val addedSink = addedDevices.firstOrNull { it.isSink && !repository.isBuiltinOutput(it.type) }
                 handler.post {
                     repository.handleDeviceChange(addedSink)
                     dolbyViewModel.loadSettings()

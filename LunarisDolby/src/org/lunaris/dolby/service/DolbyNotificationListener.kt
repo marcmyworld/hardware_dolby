@@ -35,29 +35,39 @@ class DolbyNotificationListener : NotificationListenerService() {
 
     private val audioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
-            DolbyConstants.dlog(TAG, "Devices added: ${addedDevices.map { it.productName }}")
+            Log.i(TAG, "Devices added: ${addedDevices.map { it.productName }}")
             if (::dolbyRepository.isInitialized) {
-                val addedSink = addedDevices.firstOrNull { it.isSink }
-                dolbyRepository.handleDeviceChange(addedSink)
+                val addedSink = addedDevices.firstOrNull { it.isSink && !dolbyRepository.isBuiltinOutput(it.type) }
+                if (addedSink != null) {
+                    dolbyRepository.handleDeviceChange(addedSink, forceReapply = true)
+                } else {
+                    dolbyRepository.handleDeviceChange()
+                }
                 handler.removeCallbacks(checkRoutingRunnable)
-                handler.postDelayed(checkRoutingRunnable, 300)
+                handler.postDelayed(checkRoutingRunnable, 500)
             }
         }
 
         override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) {
-            DolbyConstants.dlog(TAG, "Devices removed: ${removedDevices.map { it.productName }}")
+            Log.i(TAG, "Devices removed: ${removedDevices.map { it.productName }}")
             if (::dolbyRepository.isInitialized) {
                 dolbyRepository.handleDeviceChange()
                 handler.removeCallbacks(checkRoutingRunnable)
-                handler.postDelayed(checkRoutingRunnable, 300)
+                handler.postDelayed(checkRoutingRunnable, 500)
             }
         }
     }
 
     private val playbackCallback = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
-            val isActive = configs?.any { it.isActive } == true
-            if (isActive && ::dolbyRepository.isInitialized) {
+            if (!::dolbyRepository.isInitialized) return
+            val activeConfigs = configs?.filter { it.isActive && it.audioDeviceInfo != null && it.audioDeviceInfo.isSink }
+            val externalSink = activeConfigs?.firstOrNull { !dolbyRepository.isBuiltinOutput(it.audioDeviceInfo.type) }?.audioDeviceInfo
+            val targetDevice = externalSink ?: activeConfigs?.firstOrNull()?.audioDeviceInfo
+            if (targetDevice != null) {
+                Log.i(TAG, "playbackConfigChanged: active playback device=${targetDevice.productName} (type=${targetDevice.type})")
+                dolbyRepository.handleDeviceChange(targetDevice)
+            } else if (configs?.any { it.isActive } == true) {
                 dolbyRepository.handleDeviceChange(forceReapply = true)
             }
         }

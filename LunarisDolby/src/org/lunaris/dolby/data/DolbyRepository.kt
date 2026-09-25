@@ -10,6 +10,7 @@ import android.content.SharedPreferences
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.util.Log
 import org.lunaris.dolby.DolbyConstants
 import org.lunaris.dolby.DolbyConstants.DsParam
 import org.lunaris.dolby.R
@@ -216,6 +217,8 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
             }
         }
 
+    fun isBuiltinOutput(type: Int): Boolean = deviceStateManager.isBuiltinOutput(type)
+
     fun getActiveOutputDevice(): AudioDeviceInfo? {
         val outputs: Array<AudioDeviceInfo> = try {
             audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
@@ -226,12 +229,12 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
         val routedDevice = try {
             audioManager.getDevicesForAttributes(ATTRIBUTES_MEDIA).firstOrNull()
         } catch (e: Exception) {
-            DolbyConstants.dlog(TAG, "Failed to get active media route: ${e.message}")
+            Log.d(TAG, "Failed to get active media route: ${e.message}")
             null
         }
 
-        // If media routing reports a non-speaker sink, map to connected output device
-        if (routedDevice != null && routedDevice.type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+        // If media routing reports an external sink, map to connected output device
+        if (routedDevice != null && !isBuiltinOutput(routedDevice.type)) {
             val routedAddress = routedDevice.address.orEmpty()
             val match = outputs.firstOrNull { device ->
                 device.type == routedDevice.type &&
@@ -243,26 +246,20 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
         }
 
         // When media playback is paused or idle, AOSP getDevicesForAttributes(ATTRIBUTES_MEDIA)
-        // frequently reports TYPE_BUILTIN_SPEAKER or null because no AudioTrack is actively streaming.
+        // frequently reports speaker/earpiece or null because no AudioTrack is actively streaming.
         // If a previously active external device is still physically connected, preserve it!
         val lastKey = lastActiveDeviceKey
         if (!lastKey.isNullOrEmpty() && lastKey != "builtin_speaker") {
             val matchingConnected = outputs.firstOrNull { device ->
-                device.isSink && deviceStateManager.deviceKey(device) == lastKey
+                device.isSink && !isBuiltinOutput(device.type) && deviceStateManager.deviceKey(device) == lastKey
             }
             if (matchingConnected != null) {
                 return matchingConnected
             }
         }
 
-        // If no prior key or previous device disconnected, check for any connected external sink
-        val usbDevice = outputs.firstOrNull {
-            it.isSink && (it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
-                it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
-                it.type == AudioDeviceInfo.TYPE_USB_ACCESSORY)
-        }
-        if (usbDevice != null) return usbDevice
-
+        // If no prior key or previous device disconnected, check for any connected external sink by priority:
+        // Wired > USB > Bluetooth
         val wiredDevice = outputs.firstOrNull {
             it.isSink && (it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
                 it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
@@ -271,6 +268,13 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
                 it.type == AudioDeviceInfo.TYPE_AUX_LINE)
         }
         if (wiredDevice != null) return wiredDevice
+
+        val usbDevice = outputs.firstOrNull {
+            it.isSink && (it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                it.type == AudioDeviceInfo.TYPE_USB_ACCESSORY)
+        }
+        if (usbDevice != null) return usbDevice
 
         val bt = outputs.firstOrNull {
             it.isSink && (it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
@@ -284,6 +288,7 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
 
         // Only fall back to speaker if no external audio devices exist
         return outputs.firstOrNull { it.isSink && it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+            ?: outputs.firstOrNull { it.isSink && isBuiltinOutput(it.type) }
     }
 
     fun getCurrentOutputDevice(): AudioDeviceInfo? = getActiveOutputDevice()
@@ -305,26 +310,28 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
             val previousKey = lastActiveDeviceKey
 
             if (!forceReapply && previousKey != null && previousKey == currentKey) {
-                DolbyConstants.dlog(TAG, "Device unchanged: $currentKey")
+                Log.d(TAG, "Device unchanged: $currentKey")
                 return false
             }
 
-            DolbyConstants.dlog(TAG, "Device routing changed: previous=$previousKey, current=$currentKey, forceReapply=$forceReapply")
+            Log.i(TAG, "Device routing changed: previous=$previousKey, current=$currentKey, forceReapply=$forceReapply")
 
             if (previousKey != null && previousKey != currentKey && isDeviceStateMemoryEnabled && getDolbyEnabled()) {
-                DolbyConstants.dlog(TAG, "Saving snapshot for previous device: $previousKey")
+                Log.i(TAG, "Saving snapshot for previous device: $previousKey")
                 deviceStateManager.saveSnapshot(previousKey, this, force = true)
             }
 
             lastActiveDeviceKey = currentKey
 
             if (isDeviceStateMemoryEnabled && getDolbyEnabled()) {
-                DolbyConstants.dlog(TAG, "Restoring snapshot for device: $currentKey")
-                val restored = deviceStateManager.restoreSnapshot(currentKey, this)
-                if (!restored) {
-                    DolbyConstants.dlog(TAG, "No snapshot for $currentKey, applying saved profile as base")
-                    restoreSavedProfileIfNeeded()
-                    deviceStateManager.saveSnapshot(currentKey, this, force = true)
+                val isHeadphone = currentDevice?.let { deviceStateManager.isHeadphone(it) } ?: false
+                if (deviceStateManager.hasSnapshot(currentKey)) {
+                    Log.i(TAG, "Restoring snapshot for device: $currentKey")
+                    deviceStateManager.restoreSnapshot(currentKey, this)
+                } else {
+                    Log.i(TAG, "No snapshot for $currentKey, initializing clean defaults (isHeadphone=$isHeadphone)")
+                    deviceStateManager.initDefaultSnapshot(currentKey, this, isHeadphone)
+                    deviceStateManager.restoreSnapshot(currentKey, this)
                 }
             } else {
                 restoreSavedProfileIfNeeded()
@@ -340,9 +347,9 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
             if (!isDeviceStateMemoryEnabled) return
             val key = getActiveDeviceKey()
             deviceStateManager.saveSnapshot(key, this, force = true)
-            DolbyConstants.dlog(TAG, "Saved snapshot for current device: $key")
+            Log.i(TAG, "Saved snapshot for current device: $key")
         } catch (e: Exception) {
-            DolbyConstants.dlog(TAG, "Error saving current device snapshot: ${e.message}")
+            Log.e(TAG, "Error saving current device snapshot: ${e.message}")
         }
     }
 
@@ -352,14 +359,14 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
             val key = getActiveDeviceKey()
             lastActiveDeviceKey = key
             if (!deviceStateManager.hasSnapshot(key)) {
-                DolbyConstants.dlog(TAG, "No snapshot exists for current device: $key")
+                Log.i(TAG, "No snapshot exists for current device: $key")
                 return false
             }
             val restored = deviceStateManager.restoreSnapshot(key, this)
-            DolbyConstants.dlog(TAG, "Restored snapshot for current device $key: $restored")
+            Log.i(TAG, "Restored snapshot for current device $key: $restored")
             restored
         } catch (e: Exception) {
-            DolbyConstants.dlog(TAG, "Error restoring current device snapshot: ${e.message}")
+            Log.e(TAG, "Error restoring current device snapshot: ${e.message}")
             false
         }
     }
@@ -371,7 +378,7 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
         _isDolbyEnabled.value = enabled
         if (enabled) {
             if (isDeviceStateMemoryEnabled) {
-                handleDeviceChange()
+                handleDeviceChange(forceReapply = true)
             } else {
                 restoreSavedProfileIfNeeded()
             }
@@ -380,7 +387,7 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
 
     private fun checkIsOnSpeaker(): Boolean {
         val dev = getActiveOutputDevice()
-        return dev == null || dev.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+        return dev == null || isBuiltinOutput(dev.type)
     }
 
     fun updateSpeakerState() {
