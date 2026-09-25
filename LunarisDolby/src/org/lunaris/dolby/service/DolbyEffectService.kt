@@ -52,9 +52,11 @@ class DolbyEffectService : Service() {
 
     private val playbackCallback = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
-            val activeConfigs = configs?.filter { it.isActive && it.audioDeviceInfo != null && it.audioDeviceInfo.isSink }
-            val externalSink = activeConfigs?.firstOrNull { !repository.isBuiltinOutput(it.audioDeviceInfo.type) }?.audioDeviceInfo
-            val targetDevice = externalSink ?: activeConfigs?.firstOrNull()?.audioDeviceInfo
+            val activeDevices = configs?.filter { it.isActive }
+                ?.mapNotNull { it.audioDeviceInfo }
+                ?.filter { it.isSink }
+            val targetDevice = activeDevices?.firstOrNull { !repository.isBuiltinOutput(it.type) }
+                ?: activeDevices?.firstOrNull()
             if (targetDevice != null) {
                 Log.i(TAG, "playbackConfigChanged: active playback device=${targetDevice.debugString()}")
                 repository.handleDeviceChange(targetDevice)

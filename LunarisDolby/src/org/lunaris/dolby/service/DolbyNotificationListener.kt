@@ -61,9 +61,11 @@ class DolbyNotificationListener : NotificationListenerService() {
     private val playbackCallback = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
             if (!::dolbyRepository.isInitialized) return
-            val activeConfigs = configs?.filter { it.isActive && it.audioDeviceInfo != null && it.audioDeviceInfo.isSink }
-            val externalSink = activeConfigs?.firstOrNull { !dolbyRepository.isBuiltinOutput(it.audioDeviceInfo.type) }?.audioDeviceInfo
-            val targetDevice = externalSink ?: activeConfigs?.firstOrNull()?.audioDeviceInfo
+            val activeDevices = configs?.filter { it.isActive }
+                ?.mapNotNull { it.audioDeviceInfo }
+                ?.filter { it.isSink }
+            val targetDevice = activeDevices?.firstOrNull { !dolbyRepository.isBuiltinOutput(it.type) }
+                ?: activeDevices?.firstOrNull()
             if (targetDevice != null) {
                 Log.i(TAG, "playbackConfigChanged: active playback device=${targetDevice.productName} (type=${targetDevice.type})")
                 dolbyRepository.handleDeviceChange(targetDevice)
