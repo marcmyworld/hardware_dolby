@@ -25,6 +25,7 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
     private val audioManager = context.getSystemService(AudioManager::class.java)
     private val defaultPrefs = context.getSharedPreferences("dolby_prefs", Context.MODE_PRIVATE)
     private val presetsPrefs = context.getSharedPreferences(DolbyConstants.PREF_FILE_PRESETS, Context.MODE_PRIVATE)
+    private val deviceStateManager = DeviceStateManager(context)
     
     private var dolbyEffect = createDolbyEffect().also {
         val enabled = defaultPrefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
@@ -52,8 +53,6 @@ class DolbyRepository private constructor(private val context: Context) : AutoCl
 
     val isDeviceStateMemoryEnabled: Boolean
         get() = defaultPrefs.getBoolean(DolbyConstants.PREF_DEVICE_STATE_MEMORY, true)
-
-    private val deviceStateManager by lazy { DeviceStateManager(context) }
 
     init {
         migrateVolumeLevelerDefault()
